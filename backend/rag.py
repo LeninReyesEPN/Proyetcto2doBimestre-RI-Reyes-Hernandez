@@ -7,7 +7,6 @@ from backend.vector_db import search as vector_search
 
 # Lista de modelos en orden de preferencia.
 # gemini-3.1-flash-lite es el más liviano: menor consumo de cuota por petición
-# (mismo modelo usado en el notebook de referencia francisco-hernandez-examen2bim.ipynb)
 GEMINI_MODELS = [
     "gemini-3.1-flash-lite",      # Más económico - modelo prioritario
     "gemini-2.0-flash-lite",      # Alternativa liviana

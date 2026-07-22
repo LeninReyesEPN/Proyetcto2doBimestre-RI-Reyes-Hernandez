@@ -14,8 +14,8 @@ Fue desarrollado para la asignatura de Recuperación de Información en la Escue
 * **Visualización de Evidencias (Requisito Crítico)**: Cada respuesta del asistente incluye un panel colapsable que muestra las evidencias utilizadas por el RAG (título del producto, imagen previsualizada, ID del producto y similitud coseno exacta).
 
 ### 2. Pipeline Multimodal y RAG (Backend FastAPI)
-* **Embeddings Multimodales reales**: cada producto se indexa con la fusión de su embedding de **texto** (título) y su embedding de **imagen** (descargada y codificada con la torre visual de `clip-ViT-B-32`); si la imagen no se puede descargar, se indexa solo con texto. La consulta del usuario se codifica solo como texto. Detalle en `INFORME.md` (Sección 2) y `backend/embeddings.py` / `backend/vector_db.py`.
-* **Corpus Real**: une dos datasets de Hugging Face — `crossingminds/shopping-queries-image-dataset` (SQID, imágenes reales de producto) con `tasksource/esci` (consultas, títulos y juicios de relevancia ESCI, filtrado a `locale=us` y `small_version=1`) — conservando solo productos con imagen real asociada. Ver `INFORME.md` para el detalle completo y `backend/corpus.py` para la implementación. Si no hay conexión a internet, cae automáticamente a un corpus mock de 10 productos para desarrollo local.
+* **Embeddings Multimodales reales**: cada producto se indexa con la fusión de su embedding de **texto** (título) y su embedding de **imagen** (descargada y codificada con la torre visual de `clip-ViT-B-32`); si la imagen no se puede descargar, se indexa solo con texto. La consulta del usuario se codifica solo como texto. Detalle en `INFORME.pdf` (Sección 2) y `backend/embeddings.py` / `backend/vector_db.py`.
+* **Corpus Real**: une dos datasets de Hugging Face — `crossingminds/shopping-queries-image-dataset` (SQID, imágenes reales de producto) con `tasksource/esci` (consultas, títulos y juicios de relevancia ESCI, filtrado a `locale=us` y `small_version=1`) — conservando solo productos con imagen real asociada. Ver `INFORME.pdf` para el detalle completo y `backend/corpus.py` para la implementación. Si no hay conexión a internet, cae automáticamente a un corpus mock de 10 productos para desarrollo local.
 * **Base de Datos Vectorial**: Indexa los vectores de productos y realiza la recuperación por similitud coseno con **FAISS**.
 
 ### 3. Funcionalidades de Excelencia (+60 Puntos Extra)
@@ -114,10 +114,4 @@ Para ejecutar las pruebas y evaluar las métricas de Precision, Recall y NDCG co
 
 ## 📄 Informe Técnico (PDF)
 
-El informe técnico completo (corpus, arquitectura, pipeline, resultados experimentales y funcionalidades de excelencia) está en `INFORME.md`, con su versión ya generada en `INFORME.pdf` (máximo 5 páginas). Si se modifica el contenido de `INFORME.md`, el PDF se regenera con:
-
-```bash
-python3 generate_pdf.py
-```
-
-Esto sobrescribe `INFORME.pdf` con el contenido actual de `INFORME.md`.
+El informe técnico (corpus, arquitectura, pipeline, resultados experimentales y funcionalidades de excelencia) está en `INFORME.pdf`, con un máximo de 5 páginas según lo solicitado.
