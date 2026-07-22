@@ -123,7 +123,8 @@ def markdown_to_pdf(md_path, pdf_path):
             title = sanitize_text(line_str.replace("# ", "").strip())
             pdf.set_font("Helvetica", "B", 16)
             pdf.set_text_color(15, 23, 42)
-            pdf.cell(0, 9, title, new_x="LMARGIN", new_y="NEXT")
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(0, 9, title)
             pdf.set_draw_color(15, 23, 42)
             pdf.set_line_width(0.5)
             pdf.line(15, pdf.get_y(), 195, pdf.get_y())
@@ -154,7 +155,7 @@ def markdown_to_pdf(md_path, pdf_path):
         if line_str.startswith("* ") or line_str.startswith("- "):
             bullet_text = line_str[2:].strip()
             clean_text = sanitize_text(re.sub(r'\*\*(.*?)\*\*', r'\1', bullet_text))
-            clean_text = re.sub(r'[\$\\_]', '', clean_text)
+            clean_text = re.sub(r'[\$\\]', '', clean_text)
             pdf.set_font("Helvetica", "", 9.5)
             pdf.set_text_color(40, 40, 40)
             pdf.set_x(pdf.l_margin)
@@ -164,7 +165,7 @@ def markdown_to_pdf(md_path, pdf_path):
 
         # Normal text / Metadata
         clean_text = sanitize_text(re.sub(r'\*\*(.*?)\*\*', r'\1', line_str))
-        clean_text = re.sub(r'[\$\\_]', '', clean_text)
+        clean_text = re.sub(r'[\$\\]', '', clean_text)
         
         if "Asignatura:" in clean_text or "Integrantes:" in clean_text or "Institución:" in clean_text:
             pdf.set_font("Helvetica", "B", 9.5)
