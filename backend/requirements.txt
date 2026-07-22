@@ -1,13 +1,14 @@
 fastapi
 uvicorn
+pydantic
 datasets
 pandas
 pyarrow
 faiss-cpu
 sentence-transformers
+torch
 google-generativeai
 requests
 pillow
-jinja2
 numpy<2.0
 cryptography==42.0.5

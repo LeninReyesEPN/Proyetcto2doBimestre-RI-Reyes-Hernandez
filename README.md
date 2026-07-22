@@ -38,11 +38,13 @@ Fue desarrollado para la asignatura de Recuperación de Información en la Escue
 ```bash
 ├── backend/
 │   ├── corpus.py         # Descarga y procesa el corpus de Hugging Face
-│   ├── embeddings.py     # Genera vectores usando el modelo CLIP
+│   ├── embeddings.py     # Genera vectores usando el modelo CLIP (texto e imagen)
 │   ├── vector_db.py      # Controla el índice FAISS local
 │   ├── rag.py            # Orquestador RAG (LLM, re-ranking, query expansion, feedback)
 │   ├── evaluation.py     # Ejecuta la evaluación experimental de métricas (Precision, Recall, NDCG)
-│   └── main.py           # Servidor REST de FastAPI
+│   ├── main.py           # Servidor REST de FastAPI
+│   ├── requirements.txt  # Dependencias de Python del backend
+│   └── test_pipeline.py  # Prueba end-to-end del pipeline completo (corpus, índice, RAG, evaluación)
 ├── src/                  # Código fuente del Frontend Next.js (TypeScript/React)
 │   ├── app/              # Enrutador App Router (page.tsx, globals.css, layout.tsx)
 │   └── components/       # Componentes visuales (chat-area.tsx, sidebar.tsx)
@@ -56,6 +58,7 @@ Fue desarrollado para la asignatura de Recuperación de Información en la Escue
 * Python 3.9+ instalado.
 * Node.js 18+ y npm instalados.
 * Clave de API de Gemini (debes exportarla como variable de entorno `GEMINI_API_KEY`).
+* Conexión a internet estable en la primera ejecución: se necesita para descargar los datasets de Hugging Face (SQID y ESCI), los pesos de los modelos `clip-ViT-B-32` y `cross-encoder/ms-marco-MiniLM-L-6-v2` (~700MB en total), y las imágenes de producto desde el CDN de Amazon. Sin conexión, el sistema cae automáticamente a un corpus mock de 10 productos.
 
 ### Paso 1: Configurar y Ejecutar el Backend (Python)
 
