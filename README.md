@@ -76,7 +76,7 @@ Fue desarrollado para la asignatura de Recuperación de Información en la Escue
    ```bash
    python -m uvicorn backend.main:app --reload --port 8000
    ```
-   * *Nota: En la primera ejecución, el servidor descargará el corpus de Hugging Face y construirá el índice FAISS automáticamente — incluyendo la descarga de las imágenes de producto para generar sus embeddings visuales. Esto puede tardar entre 1 y 4 minutos (más 1-5 min extra si es la primera vez que se descargan los modelos CLIP/Cross-Encoder en esta máquina). Ver "Tiempo Estimado de (Re)Indexación" en `INFORME.md` (Sección 6) para el detalle por etapa. Arranques posteriores son casi instantáneos porque el corpus y el índice quedan cacheados en `backend/data/`.*
+   * *Nota: En la primera ejecución, el servidor descargará el corpus de Hugging Face y construirá el índice FAISS automáticamente — incluyendo la descarga de las imágenes de producto y la generación de sus embeddings visuales con CLIP. Las imágenes se descargan en paralelo (16 hilos) pero se codifican **una por una** (`backend/embeddings.py`), una medida de seguridad para evitar un SegFault de PyTorch/CLIP observado en macOS al codificar lotes de imágenes. Con el corpus real (~350 productos) esto puede tardar entre 3 y 8 minutos, más 1-5 min extra si es la primera vez que se descargan los modelos CLIP/Cross-Encoder en esta máquina (~700MB). Arranques posteriores son casi instantáneos porque el corpus y el índice quedan cacheados en `backend/data/`.*
 
 ### Paso 2: Configurar y Ejecutar el Frontend (Next.js)
 
