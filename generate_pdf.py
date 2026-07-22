@@ -182,6 +182,8 @@ def markdown_to_pdf(md_path, pdf_path):
     print(f"PDF generado exitosamente en: {pdf_path}")
 
 if __name__ == "__main__":
-    md_file = "/Users/alexander/Documents/EPN/Recuperacion de Información/ProyectoFinal/INFORME.md"
-    pdf_file = "/Users/alexander/Documents/EPN/Recuperacion de Información/ProyectoFinal/INFORME.pdf"
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    md_file = os.path.join(current_dir, "INFORME.md")
+    pdf_file = os.path.join(current_dir, "INFORME.pdf")
     markdown_to_pdf(md_file, pdf_file)

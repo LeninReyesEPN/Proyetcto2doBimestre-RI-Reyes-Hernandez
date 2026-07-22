@@ -5,6 +5,8 @@ import numpy as np
 import requests
 from PIL import Image
 from sentence_transformers import SentenceTransformer
+import torch
+torch.set_num_threads(1)  # Evita choques de paralelización de C++ en macOS
 
 # Load a lightweight, publicly available CLIP model
 # It maps text and images to the same common vector space.
@@ -54,15 +56,33 @@ def encode_image(image_urls: list[str]) -> list:
     the image could not be downloaded, so callers can fall back to text-only embeddings."""
     model = get_model()
 
-    with ThreadPoolExecutor(max_workers=IMAGE_DOWNLOAD_WORKERS) as executor:
-        images = list(executor.map(_download_image, image_urls))
+    # 1. Download images concurrently
+    try:
+        with ThreadPoolExecutor(max_workers=IMAGE_DOWNLOAD_WORKERS) as executor:
+            images = list(executor.map(_download_image, image_urls))
+    except Exception as e:
+        print(f"Error al descargar imágenes en paralelo: {e}. Se usarán embeddings de texto.")
+        return [None] * len(image_urls)
 
     valid_indices = [i for i, img in enumerate(images) if img is not None]
     if not valid_indices:
         return [None] * len(image_urls)
 
     valid_images = [images[i] for i in valid_indices]
-    valid_embeddings = model.encode(valid_images, normalize_embeddings=True, show_progress_bar=False)
+    
+    # 2. Generate embeddings sequentially to avoid PyTorch C++ parallelization SegFaults on macOS
+    valid_embeddings = []
+    
+    print(f"Codificando {len(valid_images)} imágenes de forma segura...")
+    try:
+        for idx, img in enumerate(valid_images):
+            # Encode single image to prevent sub-threading crashes
+            emb = model.encode(img, normalize_embeddings=True, show_progress_bar=False)
+            valid_embeddings.append(emb)
+    except Exception as e:
+        print(f"\n⚠️ ADVERTENCIA: Falló el codificador visual de CLIP: {e}.")
+        print("El sistema continuará funcionando de forma segura usando únicamente embeddings de texto (Text-to-Text RAG).")
+        return [None] * len(image_urls)
 
     results = [None] * len(image_urls)
     for idx, embedding in zip(valid_indices, valid_embeddings):
