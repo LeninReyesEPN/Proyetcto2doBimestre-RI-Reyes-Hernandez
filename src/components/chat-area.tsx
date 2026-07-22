@@ -42,6 +42,7 @@ export function ChatArea({
   const [inputValue, setInputValue] = useState("")
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [feedbackId, setFeedbackId] = useState<{ [id: string]: "like" | "dislike" | undefined }>({})
+  const [productFeedback, setProductFeedback] = useState<{ [key: string]: "like" | "dislike" | undefined }>({})
   
   const chatContainerRef = useRef<HTMLDivElement>(null)
 
@@ -55,6 +56,31 @@ export function ChatArea({
     navigator.clipboard.writeText(text)
     setCopiedId(msgId)
     setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  const handleProductFeedback = async (msgId: string, queryText: string, productId: string, type: "like" | "dislike") => {
+    const key = `${msgId}_${productId}`
+    const isUndoing = productFeedback[key] === type
+    const newFeedback = isUndoing ? undefined : type
+
+    setProductFeedback((prev) => ({
+      ...prev,
+      [key]: newFeedback,
+    }))
+
+    try {
+      await fetch("http://localhost:8000/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: queryText,
+          product_id: productId,
+          feedback: isUndoing ? "dislike" : type // fallback to dislike or adjust as needed, we send the click type
+        })
+      })
+    } catch (err) {
+      console.error("Error sending product feedback to backend", err)
+    }
   }
 
   const handleFeedback = async (msgId: string, type: "like" | "dislike") => {
@@ -74,14 +100,14 @@ export function ChatArea({
       
       const currentMsg = messages[msgIndex]
       if (currentMsg.evidences && currentMsg.evidences.length > 0) {
-        // Send relevance feedback to the Python backend
+        // Send relevance feedback to the Python backend for the primary product
         try {
           await fetch("http://localhost:8000/api/feedback", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               query: queryText,
-              product_id: currentMsg.evidences[0].product_id, // Apply feedback to the primary evidence
+              product_id: currentMsg.evidences[0].product_id,
               feedback: type
             })
           })
@@ -249,42 +275,77 @@ export function ChatArea({
 
                       {/* Multimodal Evidences (Top-K) Accordion - Only shown for Assistant messages with evidence */}
                       {!isUser && !message.thinking && message.evidences && message.evidences.length > 0 && (
-                        <details className="mt-3 border-t border-border/20 pt-3 group/details w-full">
+                        <details className="mt-3 border-t border-border/20 pt-3 group/details w-full animate-in fade-in-50">
                           <summary className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground select-none outline-none flex items-center gap-1 cursor-pointer list-none">
                             <ChevronDown className="size-3 transition-transform group-open/details:rotate-180" />
                             <span>Evidencias Multimodales ({message.evidences.length})</span>
                           </summary>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3.5 animate-in fade-in-30 slide-in-from-top-1 duration-300">
-                            {message.evidences.map((item, idx) => (
-                              <div
-                                key={idx}
-                                className="bg-secondary/20 border border-border/60 p-2.5 rounded-xl flex items-center gap-3 hover:bg-secondary/40 transition-all duration-200"
-                              >
-                                {item.image_url && (
-                                  <img
-                                    src={item.image_url}
-                                    alt={item.title}
-                                    className="size-12 rounded-lg bg-black/20 object-cover border border-border shrink-0"
-                                    onError={(e) => {
-                                      (e.target as HTMLImageElement).src = "https://via.placeholder.com/150?text=No+Image"
-                                    }}
-                                  />
-                                )}
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug" title={item.title}>
-                                    {item.title}
-                                  </p>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-[9px] uppercase font-semibold text-muted-foreground/60 tracking-wider">
-                                      ID: {item.product_id}
-                                    </span>
-                                    <span className="text-[9px] text-muted-foreground font-mono">
-                                      Similitud: {(item.similarity * 100).toFixed(1)}%
-                                    </span>
+                            {message.evidences.map((item, idx) => {
+                              const userQuery = messages[messages.findIndex(m => m.id === message.id) - 1]?.content || "";
+                              const feedKey = `${message.id}_${item.product_id}`;
+                              const currentFeed = productFeedback[feedKey];
+                              return (
+                                <div
+                                  key={idx}
+                                  className="bg-secondary/20 border border-border/60 p-2.5 rounded-xl flex items-center justify-between gap-3 hover:bg-secondary/40 transition-all duration-200"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    {item.image_url && (
+                                      <img
+                                        src={item.image_url}
+                                        alt={item.title}
+                                        className="size-12 rounded-lg bg-black/20 object-cover border border-border shrink-0"
+                                        onError={(e) => {
+                                          (e.target as HTMLImageElement).src = "https://via.placeholder.com/150?text=No+Image"
+                                        }}
+                                      />
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug" title={item.title}>
+                                        {item.title}
+                                      </p>
+                                      <div className="flex items-center gap-2 mt-1">
+                                        <span className="text-[9px] uppercase font-semibold text-muted-foreground/60 tracking-wider">
+                                          ID: {item.product_id}
+                                        </span>
+                                        <span className="text-[9px] text-muted-foreground font-mono">
+                                          Similitud: {(item.similarity * 100).toFixed(1)}%
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Individual Card Feedback Actions */}
+                                  <div className="flex flex-col gap-1.5 shrink-0">
+                                    <button
+                                      onClick={() => handleProductFeedback(message.id, userQuery, item.product_id, "like")}
+                                      className={cn(
+                                        "p-1 rounded-md transition-colors cursor-pointer",
+                                        currentFeed === "like"
+                                          ? "text-emerald-500 bg-emerald-500/10"
+                                          : "text-muted-foreground/60 hover:text-emerald-500 hover:bg-secondary"
+                                      )}
+                                      title="Calificar como relevante"
+                                    >
+                                      <ThumbsUp className="size-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleProductFeedback(message.id, userQuery, item.product_id, "dislike")}
+                                      className={cn(
+                                        "p-1 rounded-md transition-colors cursor-pointer",
+                                        currentFeed === "dislike"
+                                          ? "text-red-500 bg-red-500/10"
+                                          : "text-muted-foreground/60 hover:text-red-500 hover:bg-secondary"
+                                      )}
+                                      title="Calificar como irrelevante"
+                                    >
+                                      <ThumbsDown className="size-3" />
+                                    </button>
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </details>
                       )}
