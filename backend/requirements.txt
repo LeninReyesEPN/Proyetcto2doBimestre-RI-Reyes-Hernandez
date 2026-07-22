@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+datasets
+pandas
+pyarrow
+faiss-cpu
+sentence-transformers
+google-generativeai
+requests
+jinja2
+numpy<2.0
+cryptography==42.0.5
