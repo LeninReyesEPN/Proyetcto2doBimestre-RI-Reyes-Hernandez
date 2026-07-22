@@ -112,13 +112,12 @@ Para ejecutar las pruebas y evaluar las métricas de Precision, Recall y NDCG co
 
 ---
 
-## 📄 Generación del Informe Técnico (PDF)
+## 📄 Informe Técnico (PDF)
 
-El informe técnico vive en `INFORME.md`. Las tablas de métricas de la Sección 4 quedaron marcadas como `_pendiente_` porque requieren correr el corpus real (paso 1 de esta sección) en una máquina con memoria suficiente para cargar CLIP y el Cross-Encoder. Antes de la entrega final:
+El informe técnico completo (corpus, arquitectura, pipeline, resultados experimentales y funcionalidades de excelencia) está en `INFORME.md`, con su versión ya generada en `INFORME.pdf` (máximo 5 páginas). Si se modifica el contenido de `INFORME.md`, el PDF se regenera con:
 
-1. Ejecuta `python -m backend.evaluation` (o `curl http://localhost:8000/api/evaluate`) y copia los valores impresos en las Tablas A y B de `INFORME.md`.
-2. Regenera el PDF a partir del Markdown actualizado:
-   ```bash
-   python3 generate_pdf.py
-   ```
-   Esto sobrescribe `INFORME.pdf` con el contenido actual de `INFORME.md`.
+```bash
+python3 generate_pdf.py
+```
+
+Esto sobrescribe `INFORME.pdf` con el contenido actual de `INFORME.md`.
