@@ -17,8 +17,8 @@ El sistema construye su corpus multimodal uniendo **dos datasets públicos de Hu
 
 * **Estructura del documento indexado:**
   * `product_id`: identificador alfanumérico del producto (ASIN de Amazon).
-  * `title`: título comercial del producto (`product_title` de ESCI).
-  * `image_url`: URL directa a la fotografía del producto (de SQID).
+  * `title`: título comercial del producto (`product_title` de ESCI), usado para generar el embedding de **texto** con la torre textual de CLIP.
+  * `image_url`: URL directa a la fotografía del producto (de SQID). No es solo un campo de metadata para mostrar en la interfaz: en la etapa de indexación se descarga esa imagen y se genera su embedding de **imagen** con la torre visual de CLIP, que se fusiona con el embedding de texto (detalle completo en la Sección 2). Esto es lo que hace la recuperación genuinamente multimodal, y no solo texto con fotos de adorno.
 * **Juicios de relevancia (`qrels.json`):** para cada consulta se listan los productos evaluados por anotadores humanos con su etiqueta ESCI, mapeada a un puntaje graduado para NDCG:
   * **Exact** (concordancia exacta): 3 puntos.
   * **Substitute** (sustituto directo): 2 puntos.
