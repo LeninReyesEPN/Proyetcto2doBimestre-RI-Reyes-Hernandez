@@ -27,30 +27,18 @@ def sanitize_text(text):
 
 class TechnicalReportPDF(FPDF):
     def header(self):
-        self.set_font("Helvetica", "B", 9)
-        self.set_text_color(100, 100, 100)
-        t1 = sanitize_text("Escuela Politécnica Nacional - ICCD753 Recuperación de Información")
-        t2 = sanitize_text("Informe Técnico RAG Multimodal")
-        self.cell(110, 8, t1, border=0, new_x="RIGHT", new_y="TOP", align="L")
-        self.cell(70, 8, t2, border=0, new_x="LMARGIN", new_y="NEXT", align="R")
-        self.set_draw_color(200, 200, 200)
-        self.line(15, 18, 195, 18)
-        self.ln(5)
+        pass
 
     def footer(self):
-        self.set_y(-15)
-        self.set_font("Helvetica", "I", 8)
-        self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f"Página {self.page_no()}/{{nb}}", align="C")
+        pass
 
 def markdown_to_pdf(md_path, pdf_path):
     with open(md_path, "r", encoding="utf-8") as f:
         text = f.read()
 
     pdf = TechnicalReportPDF(orientation="P", unit="mm", format="A4")
-    pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_margins(15, 20, 15)
+    pdf.set_margins(15, 15, 15)
     pdf.add_page()
 
     lines = text.split("\n")
