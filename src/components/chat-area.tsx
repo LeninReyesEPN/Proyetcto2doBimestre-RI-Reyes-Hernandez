@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Send, Mic, Paperclip, StopCircle, Copy, Check, ThumbsUp, ThumbsDown, FileText, Image as ImageIcon, PanelLeft, ChevronDown } from "lucide-react"
+import { Send, StopCircle, Copy, Check, ThumbsUp, ThumbsDown, FileText, Image as ImageIcon, PanelLeft, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PromptInput, PromptInputTextarea, PromptInputActions, PromptInputAction } from "@/components/ui/prompt-input"
 import { ThinkingBar } from "@/components/ui/thinking-bar"
@@ -42,28 +42,13 @@ export function ChatArea({
   const [inputValue, setInputValue] = useState("")
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [feedbackId, setFeedbackId] = useState<{ [id: string]: "like" | "dislike" | undefined }>({})
-  const [attachedFiles, setAttachedFiles] = useState<Array<{ name: string; type: "image" | "file" }>>([])
   
   const chatContainerRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleSend = () => {
-    if (!inputValue.trim() && attachedFiles.length === 0) return
-    onSendMessage(inputValue, attachedFiles)
+    if (!inputValue.trim()) return
+    onSendMessage(inputValue)
     setInputValue("")
-    setAttachedFiles([])
-  }
-
-  const handleAttachFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0]
-      const type: "image" | "file" = file.type.startsWith("image/") ? "image" : "file"
-      setAttachedFiles((prev) => [...prev, { name: file.name, type }])
-    }
-  }
-
-  const removeAttachedFile = (index: number) => {
-    setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
   const copyToClipboard = (text: string, msgId: string) => {
@@ -117,31 +102,6 @@ export function ChatArea({
   const renderPromptInput = () => {
     return (
       <div className="w-full flex flex-col gap-2">
-        {/* Attached Files Preview */}
-        {attachedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2 p-2 rounded-2xl glass-card border border-border animate-in slide-in-from-bottom-2 duration-300">
-            {attachedFiles.map((file, idx) => (
-              <div
-                key={idx}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-secondary border border-border text-xs text-foreground"
-              >
-                {file.type === "image" ? (
-                  <ImageIcon className="size-3 text-primary" />
-                ) : (
-                  <FileText className="size-3 text-primary" />
-                )}
-                <span className="max-w-[120px] truncate">{file.name}</span>
-                <button
-                  onClick={() => removeAttachedFile(idx)}
-                  className="ml-1 text-muted-foreground hover:text-foreground text-[10px] font-bold cursor-pointer"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
         {/* PromptInput wrapper with absolute black, centered layout */}
         <PromptInput
           isLoading={isGenerating}
@@ -150,33 +110,7 @@ export function ChatArea({
           onSubmit={handleSend}
           className="bg-black! border border-border! focus-within:border-white/30! p-2 rounded-3xl relative group transition-all duration-300 flex items-center w-full"
         >
-          {/* Hidden native input for attaching files */}
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleAttachFile}
-            className="hidden"
-          />
-
-          <PromptInputActions className="pl-1 shrink-0">
-            <PromptInputAction tooltip="Adjuntar archivo">
-              <span
-                onClick={() => fileInputRef.current?.click()}
-                className="p-2 rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer inline-block"
-              >
-                <Paperclip className="size-4.5" />
-              </span>
-            </PromptInputAction>
-            <PromptInputAction tooltip="Grabación de voz (Demo)">
-              <span
-                className="p-2 rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer inline-block"
-              >
-                <Mic className="size-4.5" />
-              </span>
-            </PromptInputAction>
-          </PromptInputActions>
-
-          <div className="flex-1 min-w-0 pr-2">
+          <div className="flex-1 min-w-0 pr-2 pl-3">
             <PromptInputTextarea
               placeholder="Pregúntale a tu asistente..."
               className="w-full text-foreground bg-transparent! dark:bg-transparent! border-none! shadow-none! outline-none! focus-visible:ring-0! focus-visible:ring-offset-0! min-h-0! py-1.5! px-3! resize-none"
@@ -198,10 +132,10 @@ export function ChatArea({
                 <button
                   type="button"
                   onClick={handleSend}
-                  disabled={!inputValue.trim() && attachedFiles.length === 0}
+                  disabled={!inputValue.trim()}
                   className={cn(
                     "p-2 rounded-full transition-all duration-300 cursor-pointer",
-                    inputValue.trim() || attachedFiles.length > 0
+                    inputValue.trim()
                       ? "bg-primary text-primary-foreground scale-105 shadow-md"
                       : "text-muted-foreground/45 opacity-40 pointer-events-none cursor-not-allowed"
                   )}
