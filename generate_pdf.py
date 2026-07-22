@@ -49,6 +49,10 @@ def markdown_to_pdf(md_path, pdf_path):
     for line in lines:
         line_str = line.strip()
 
+        # Markdown horizontal rule: skip, don't print as literal dashes
+        if line_str in ("---", "***", "___"):
+            continue
+
         # Code block handling
         if line_str.startswith("```"):
             in_code_block = not in_code_block
