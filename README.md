@@ -14,7 +14,7 @@ Fue desarrollado para la asignatura de Recuperación de Información en la Escue
 * **Visualización de Evidencias (Requisito Crítico)**: Cada respuesta del asistente incluye un panel colapsable que muestra las evidencias utilizadas por el RAG (título del producto, imagen previsualizada, ID del producto y similitud coseno exacta).
 
 ### 2. Pipeline Multimodal y RAG (Backend FastAPI)
-* **Embeddings Multimodales**: Utiliza el modelo `clip-ViT-B-32` para generar los vectores de texto de cada producto.
+* **Embeddings Multimodales reales**: cada producto se indexa con la fusión de su embedding de **texto** (título) y su embedding de **imagen** (descargada y codificada con la torre visual de `clip-ViT-B-32`); si la imagen no se puede descargar, se indexa solo con texto. La consulta del usuario se codifica solo como texto. Detalle en `INFORME.md` (Sección 2) y `backend/embeddings.py` / `backend/vector_db.py`.
 * **Corpus Real**: une dos datasets de Hugging Face — `crossingminds/shopping-queries-image-dataset` (SQID, imágenes reales de producto) con `tasksource/esci` (consultas, títulos y juicios de relevancia ESCI, filtrado a `locale=us` y `small_version=1`) — conservando solo productos con imagen real asociada. Ver `INFORME.md` para el detalle completo y `backend/corpus.py` para la implementación. Si no hay conexión a internet, cae automáticamente a un corpus mock de 10 productos para desarrollo local.
 * **Base de Datos Vectorial**: Indexa los vectores de productos y realiza la recuperación por similitud coseno con **FAISS**.
 
@@ -76,7 +76,7 @@ Fue desarrollado para la asignatura de Recuperación de Información en la Escue
    ```bash
    python -m uvicorn backend.main:app --reload --port 8000
    ```
-   * *Nota: En la primera ejecución, el servidor descargará el corpus de Hugging Face y construirá el índice FAISS automáticamente.*
+   * *Nota: En la primera ejecución, el servidor descargará el corpus de Hugging Face y construirá el índice FAISS automáticamente — incluyendo la descarga de las imágenes de producto para generar sus embeddings visuales. Esto puede tardar entre 1 y 4 minutos (más 1-5 min extra si es la primera vez que se descargan los modelos CLIP/Cross-Encoder en esta máquina). Ver "Tiempo Estimado de (Re)Indexación" en `INFORME.md` (Sección 6) para el detalle por etapa. Arranques posteriores son casi instantáneos porque el corpus y el índice quedan cacheados en `backend/data/`.*
 
 ### Paso 2: Configurar y Ejecutar el Frontend (Next.js)
 

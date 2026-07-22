@@ -46,7 +46,8 @@ graph TD
     subgraph Backend [FastAPI Python Server]
         API[FastAPI Endpoints]
         QE[Query Expansion: Gemini]
-        CLIP[CLIP Embeddings: clip-ViT-B-32]
+        CLIPTXT[CLIP Texto: clip-ViT-B-32]
+        CLIPIMG[CLIP Imagen: clip-ViT-B-32]
         FAISS[Vector Store: FAISS Index]
         RERANK[Re-ranking: Cross-Encoder]
         LLM[RAG Generator: Gemini Flash]
@@ -57,8 +58,9 @@ graph TD
     UI -->|1. Petición /api/chat| API
     Feedback -->|Petición /api/feedback| API
     API --> QE
-    QE --> CLIP
-    CLIP -->|Embedding| FAISS
+    QE --> CLIPTXT
+    CLIPIMG -->|Embedding fusionado en indexación| FAISS
+    CLIPTXT -->|Embedding de consulta| FAISS
     FAISS -->|Top-8 Candidatos| RERANK
     RERANK -->|Top-4 Reordenados| LLM
     FeedbackDB -->|Ajuste de Scores| RERANK
@@ -67,6 +69,7 @@ graph TD
 
 * **Frontend (Next.js):** construido sobre React, TypeScript y Tailwind CSS. Implementa un diseño monocromático y tipografía **Josefin Sans**. Integra un panel colapsable (`<details>`) bajo cada respuesta para inspeccionar las evidencias (título, miniatura de imagen, ID de producto y similitud coseno), con botones individuales de "me gusta"/"no me gusta" por evidencia.
 * **Backend (FastAPI):** orquesta el pipeline de recuperación vectorial y generación. Utiliza **FAISS** como motor de indexación de vectores en memoria (`IndexFlatIP`) y la **API de Google Gemini** como modelo generativo, con una lista de modelos de respaldo ante error de cuota (ver Sección 3).
+* **Embeddings multimodales reales (`backend/embeddings.py`, `backend/vector_db.py`):** durante la indexación, cada producto se representa con la **fusión de su embedding de texto (título) y su embedding de imagen** (ambos generados por las dos torres del mismo modelo `clip-ViT-B-32`, que comparten espacio vectorial): `fusionado = normalizar(emb_texto + emb_imagen)`. Si la imagen no se puede descargar (URL caída, timeout), el producto se indexa solo con su embedding de texto — nunca se descarta un producto por eso. Esto hace que la similitud coseno usada en la búsqueda compare la consulta contra una representación que sí incorpora la imagen del producto, cumpliendo la "recuperación multimodal" pedida por el enunciado y no solo mostrando la imagen como adorno visual.
 
 ---
 
@@ -75,8 +78,8 @@ graph TD
 El flujo de procesamiento de una consulta (`backend/rag.py:generate_rag_response`) se ejecuta en los siguientes pasos:
 
 1. **Expansión de consulta (Query Expansion — excelencia):** la consulta cruda del usuario se reescribe con Gemini para incluir sinónimos y términos relacionados de e-commerce, mejorando la recuperación ante vocabulario desalineado entre el usuario y el catálogo.
-2. **Embeddings multimodales (CLIP):** la consulta expandida se codifica con el modelo de dos torres **`clip-ViT-B-32`** (`sentence-transformers`), normalizando el vector resultante (`normalize_embeddings=True`).
-3. **Búsqueda vectorial (FAISS):** se calcula la similitud coseno (producto interno sobre vectores L2-normalizados, `IndexFlatIP`) entre la consulta y todos los títulos de producto del corpus, recuperando los **8 candidatos** más cercanos.
+2. **Embedding de la consulta (CLIP, torre de texto):** la consulta expandida se codifica con el modelo **`clip-ViT-B-32`** (`sentence-transformers`), normalizando el vector resultante (`normalize_embeddings=True`). Del lado del corpus, cada producto ya fue indexado previamente con un embedding **fusionado de texto + imagen** (ver Sección 2) generado con las dos torres del mismo modelo CLIP — texto y visión comparten el mismo espacio vectorial, por lo que la comparación coseno entre ambos es válida.
+3. **Búsqueda vectorial (FAISS):** se calcula la similitud coseno (producto interno sobre vectores L2-normalizados, `IndexFlatIP`) entre el embedding de la consulta y el embedding multimodal de cada producto del corpus, recuperando los **8 candidatos** más cercanos.
 4. **Ajuste por Relevance Feedback (excelencia):** si existe retroalimentación previa del usuario ("me gusta"/"no me gusta") para ese par consulta-producto, se ajusta linealmente (±0.1) el score de similitud antes del re-ranking.
 5. **Re-ranking (Cross-Encoder — excelencia):** los candidatos se evalúan por pares `(consulta, título_producto)` con **`cross-encoder/ms-marco-MiniLM-L-6-v2`**, que captura relevancia textual profunda no disponible en el encoder de una sola torre de CLIP. Se seleccionan los **4 mejores** productos reordenados.
 6. **Generación aumentada (RAG):** se construye un prompt que inyecta el historial de conversación (memoria — excelencia) y el contexto de los 4 productos (título, ID, score de recuperación). El LLM genera la respuesta final basándose exclusivamente en ese contexto.
@@ -92,10 +95,7 @@ La evaluación (`backend/evaluation.py`) contrasta la recuperación de FAISS con
 * **Baseline:** ranking crudo de CLIP + FAISS (`run_evaluation(apply_reranking=False)`).
 * **Con Re-ranking:** se recupera un pool más amplio con FAISS y se reordena con el Cross-Encoder antes de recortar a cada $k$ (`run_evaluation(apply_reranking=True)`), reutilizando el mismo modelo que usa el pipeline de producción.
 
-> **Pendiente de completar antes de la entrega final:** las tablas de abajo deben llenarse ejecutando la evaluación contra el corpus real (ver Sección 1) desde una máquina con memoria suficiente para cargar CLIP y el Cross-Encoder. Pasos:
-> 1. Iniciar el backend una vez (`python -m uvicorn backend.main:app --port 8000`) o correr `python -m backend.corpus` para descargar/construir el corpus real y `python -m backend.vector_db` para indexarlo.
-> 2. Ejecutar `python -m backend.evaluation` (imprime baseline y con re-ranking) o llamar a `GET /api/evaluate`, que ahora devuelve `metrics.baseline_faiss` y `metrics.with_reranking`.
-> 3. Copiar los valores impresos en las tablas siguientes.
+> **Pendiente de completar antes de la entrega final:** las tablas de abajo se llenan ejecutando `python -m backend.evaluation` (o `GET /api/evaluate`) contra el corpus real ya construido, y copiando los valores impresos. Ver la sección "Instalación y Ejecución" de `README.md` para los pasos y el tiempo estimado de indexación.
 
 ### Tabla A — Baseline (solo CLIP + FAISS)
 
@@ -115,10 +115,8 @@ La evaluación (`backend/evaluation.py`) contrasta la recuperación de FAISS con
 
 ### Guía de análisis (a completar con los valores reales)
 
-* **Precision@k:** se espera que decrezca o se mantenga estable al aumentar $k$, ya que posiciones más profundas del ranking suelen incluir sustitutos o complementos en vez de coincidencias exactas.
-* **Recall@k:** debe crecer monótonamente con $k$ (nunca disminuye), acercándose a 1.0 cuando $k$ cubre la mayoría de los productos relevantes marcados en `qrels.json` para cada consulta.
-* **NDCG@k:** al ser una métrica graduada, penaliza colocar un `Substitute` o `Complement` por encima de un `Exact`; valores altos indican que el orden del ranking respeta la jerarquía de relevancia humana.
-* **Comparación Tabla A vs. Tabla B:** si el re-ranking con Cross-Encoder está aportando valor, la Tabla B debería mostrar igual o mejor Precision@k y NDCG@k que la Tabla A para los mismos $k$, ya que el Cross-Encoder captura relevancia semántica más fina que la similitud de una sola torre de CLIP. Si no se observa mejora, es una discusión legítima a incluir en el informe final (p. ej. corpus pequeño, títulos ya muy discriminativos léxicamente, etc.).
+* **Precision@k** debería decrecer o mantenerse al aumentar $k$ (posiciones más profundas suelen traer sustitutos/complementos en vez de coincidencias exactas); **Recall@k** debe crecer monótonamente hasta acercarse a 1.0; **NDCG@k**, al ser graduado, penaliza colocar un `Substitute` por encima de un `Exact` y refleja qué tan bien respeta el ranking la jerarquía de relevancia humana.
+* **Tabla A vs. Tabla B:** si el Re-ranking aporta valor, la Tabla B debería igualar o superar a la Tabla A en Precision@k y NDCG@k para los mismos $k$, ya que el Cross-Encoder capta relevancia semántica más fina que la similitud de una sola torre de CLIP. Si no se observa mejora, es una discusión legítima (corpus pequeño, títulos ya muy discriminativos léxicamente, etc.).
 
 ---
 
@@ -133,5 +131,8 @@ Se incorporaron 4 funcionalidades avanzadas sobre el sistema base:
 
 ### Limitaciones conocidas (para discutir con transparencia en la defensa)
 
-* **CLIP se usa solo en su torre de texto:** `backend/embeddings.py` únicamente expone `encode_text`; las imágenes de producto se muestran en la interfaz como evidencia visual, pero no se generan embeddings de imagen ni se indexan vectores visuales. La recuperación es multimodal en el sentido de que el corpus combina texto e imagen asociada, pero la búsqueda por similitud ocurre en el espacio de texto de CLIP, no en el espacio visual.
+* **Fusión de embeddings por promedio simple:** `emb_texto + emb_imagen` (renormalizado) pondera texto e imagen por igual. Es un método de fusión "tardía" simple y estándar para un proyecto académico, pero no aprende pesos óptimos por categoría de producto; un trabajo futuro podría ponderar el texto más que la imagen (los títulos suelen ser más discriminativos que la foto para consultas de e-commerce) o mantener índices separados y combinar rankings.
+* **La consulta del usuario solo se vectoriza como texto** (no hay carga de imágenes por parte del usuario): es consistente con el alcance mínimo del enunciado, que marca la carga de imágenes como funcionalidad opcional, no obligatoria.
 * **La evaluación mide la etapa de recuperación**, no la respuesta final generada por el LLM (que depende de la disponibilidad y cuota de la API de Gemini en el momento de la demo).
+
+*(El tiempo estimado para (re)construir el corpus y el índice se documenta en `README.md`, sección "Instalación y Ejecución", junto con los comandos exactos.)*
