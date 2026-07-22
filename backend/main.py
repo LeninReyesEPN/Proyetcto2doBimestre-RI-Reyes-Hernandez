@@ -67,10 +67,14 @@ async def feedback_endpoint(request: FeedbackRequest):
 @app.get("/api/evaluate")
 async def evaluate_endpoint():
     try:
-        metrics = run_evaluation()
+        baseline_metrics = run_evaluation(apply_reranking=False)
+        reranked_metrics = run_evaluation(apply_reranking=True)
         return {
             "status": "success",
-            "metrics": metrics
+            "metrics": {
+                "baseline_faiss": baseline_metrics,
+                "with_reranking": reranked_metrics
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

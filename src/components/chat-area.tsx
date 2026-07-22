@@ -68,6 +68,11 @@ export function ChatArea({
       [key]: newFeedback,
     }))
 
+    // Al deshacer un feedback ya no hay nada que registrar: el backend solo
+    // entiende "like"/"dislike", no un estado neutro, así que evitamos enviar
+    // el tipo contrario (eso invertiría erróneamente el ajuste de relevancia).
+    if (isUndoing) return
+
     try {
       await fetch("http://localhost:8000/api/feedback", {
         method: "POST",
@@ -75,7 +80,7 @@ export function ChatArea({
         body: JSON.stringify({
           query: queryText,
           product_id: productId,
-          feedback: isUndoing ? "dislike" : type // fallback to dislike or adjust as needed, we send the click type
+          feedback: type
         })
       })
     } catch (err) {
@@ -86,11 +91,15 @@ export function ChatArea({
   const handleFeedback = async (msgId: string, type: "like" | "dislike") => {
     const isUndoing = feedbackId[msgId] === type
     const newFeedback = isUndoing ? undefined : type
-    
+
     setFeedbackId((prev) => ({
       ...prev,
       [msgId]: newFeedback,
     }))
+
+    // Al deshacer, no hay un feedback "neutro" que enviar al backend: simplemente
+    // no reportamos nada en vez de reenviar el mismo tipo de feedback dos veces.
+    if (isUndoing) return
 
     // Find the associated user query for this message
     const msgIndex = messages.findIndex(m => m.id === msgId)

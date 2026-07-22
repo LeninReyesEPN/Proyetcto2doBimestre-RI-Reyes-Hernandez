@@ -14,8 +14,8 @@ Fue desarrollado para la asignatura de Recuperación de Información en la Escue
 * **Visualización de Evidencias (Requisito Crítico)**: Cada respuesta del asistente incluye un panel colapsable que muestra las evidencias utilizadas por el RAG (título del producto, imagen previsualizada, ID del producto y similitud coseno exacta).
 
 ### 2. Pipeline Multimodal y RAG (Backend FastAPI)
-* **Embeddings Multimodales**: Utiliza el modelo `clip-ViT-B-32` para alinear representaciones vectoriales de texto y fotos en un espacio común.
-* **Corpus Real**: Carga y procesa un subconjunto de `crossingminds/shopping-queries-image-dataset` (SQID) de Hugging Face.
+* **Embeddings Multimodales**: Utiliza el modelo `clip-ViT-B-32` para generar los vectores de texto de cada producto.
+* **Corpus Real**: une dos datasets de Hugging Face — `crossingminds/shopping-queries-image-dataset` (SQID, imágenes reales de producto) con `tasksource/esci` (consultas, títulos y juicios de relevancia ESCI, filtrado a `locale=us` y `small_version=1`) — conservando solo productos con imagen real asociada. Ver `INFORME.md` para el detalle completo y `backend/corpus.py` para la implementación. Si no hay conexión a internet, cae automáticamente a un corpus mock de 10 productos para desarrollo local.
 * **Base de Datos Vectorial**: Indexa los vectores de productos y realiza la recuperación por similitud coseno con **FAISS**.
 
 ### 3. Funcionalidades de Excelencia (+60 Puntos Extra)
@@ -25,10 +25,11 @@ Fue desarrollado para la asignatura de Recuperación de Información en la Escue
 * **Memoria Conversacional (+15 pts)**: Mantiene el contexto de los últimos turnos de conversación e historial en cada petición de RAG.
 
 ### 4. Módulo de Evaluación Experimental
-* Computa de forma automática métricas de calidad en base a los juicios de relevancia (`esci_label`) incluidos en el dataset de Hugging Face:
+* Computa de forma automática métricas de calidad en base a los juicios de relevancia (`esci_label`) del dataset ESCI, comparando el ranking baseline (solo CLIP+FAISS) contra el ranking con Re-ranking (Cross-Encoder) aplicado:
   * **Precision@k** (para k=1, 3, 5)
   * **Recall@k** (para k=1, 3, 5)
   * **NDCG@k** (para k=1, 3, 5)
+* `GET /api/evaluate` devuelve ambas variantes en `metrics.baseline_faiss` y `metrics.with_reranking`.
 
 ---
 
@@ -107,5 +108,17 @@ Para ejecutar las pruebas y evaluar las métricas de Precision, Recall y NDCG co
    ```bash
    python -m backend.evaluation
    ```
-   Esto imprimirá la tabla de métricas promedio para `K=1`, `K=3` y `K=5` basada en el benchmark e-commerce.
+   Esto imprimirá dos tablas de métricas promedio para `K=1`, `K=3` y `K=5`: el ranking baseline (solo CLIP+FAISS) y el ranking con Re-ranking (Cross-Encoder) aplicado.
 
+---
+
+## 📄 Generación del Informe Técnico (PDF)
+
+El informe técnico vive en `INFORME.md`. Las tablas de métricas de la Sección 4 quedaron marcadas como `_pendiente_` porque requieren correr el corpus real (paso 1 de esta sección) en una máquina con memoria suficiente para cargar CLIP y el Cross-Encoder. Antes de la entrega final:
+
+1. Ejecuta `python -m backend.evaluation` (o `curl http://localhost:8000/api/evaluate`) y copia los valores impresos en las Tablas A y B de `INFORME.md`.
+2. Regenera el PDF a partir del Markdown actualizado:
+   ```bash
+   python3 generate_pdf.py
+   ```
+   Esto sobrescribe `INFORME.pdf` con el contenido actual de `INFORME.md`.

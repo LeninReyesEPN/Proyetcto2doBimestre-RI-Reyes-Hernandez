@@ -1,24 +1,33 @@
 # Informe Técnico: Sistema de Recuperación de Información Multimodal con RAG
 
-**Asignatura:** ICCD753 Recuperación de Información  
-**Institución:** Escuela Politécnica Nacional (EPN) — FIS  
-**Integrantes:** Alexander Reyes y Grupo  
+**Asignatura:** ICCD753 Recuperación de Información
+**Institución:** Escuela Politécnica Nacional (EPN) — FIS
+**Integrantes:** Alexander Reyes y Grupo
 
 ---
 
 ## 1. Descripción del Corpus Utilizado
 
-El sistema trabaja sobre un subconjunto representativo del dataset multimodal de e-commerce **`crossingminds/shopping-queries-image-dataset` (SQID)** disponible en Hugging Face. Este corpus está compuesto por metadatos de productos de e-commerce de Amazon (títulos y descripciones) enriquecidos con enlaces a sus correspondientes imágenes digitales para posibilitar búsquedas visuales y multimodales.
+El sistema construye su corpus multimodal uniendo **dos datasets públicos de Hugging Face**, ya que ninguno por sí solo aporta texto e imagen para el mismo producto:
 
-* **Estructura del Documento:** Cada producto indexado en el sistema posee el siguiente esquema estructurado de datos en formato JSON:
-  * `product_id`: Identificador alfanumérico único del producto.
-  * `title`: Descripción textual corta o título comercial del producto.
-  * `image_url`: Enlace HTTPS directo a la fotografía o miniatura del artículo en internet.
-* **Consultas de Referencia (Qrels):** Para posibilitar la evaluación experimental automática, el corpus incluye un conjunto de juicios de relevancia estructurados (`qrels.json`) basados en la etiqueta de concordancia `esci_label` del dataset benchmark original (Amazon ESCI). Las etiquetas se mapean cuantitativamente a puntajes de relevancia:
-  * **Exact (Concordancia exacta):** 3 puntos.
-  * **Substitute (Sustituto directo):** 2 puntos.
-  * **Complement (Complementario):** 1 punto.
-  * **Irrelevant (Irrelevante):** 0 puntos.
+* **`crossingminds/shopping-queries-image-dataset` (SQID)**, config `product_image_urls`: aporta únicamente el mapeo `product_id -> image_url` (fotografías reales de producto de Amazon).
+* **`tasksource/esci`** (split `test`): es la versión en Hugging Face del *Amazon Shopping Queries Dataset* (ESCI). Aporta la consulta (`query`), el `product_id`, el título del producto (`product_title`) y el juicio de relevancia (`esci_label`).
+
+`backend/corpus.py` transmite (streaming) el dataset ESCI filtrando por `product_locale == "us"` y `small_version == 1` (el subconjunto curado usado en el paper original de ESCI para benchmarking), y por cada fila conserva el producto **solo si existe una imagen real asociada** en el mapeo de SQID — así se garantiza que el corpus indexado sea genuinamente multimodal (texto + imagen), en vez de mostrar imágenes que nunca participan en la recuperación. El proceso se detiene al reunir un número objetivo de consultas distintas (`NUM_QUERIES = 25` por defecto, configurable en `backend/corpus.py`).
+
+* **Estructura del documento indexado:**
+  * `product_id`: identificador alfanumérico del producto (ASIN de Amazon).
+  * `title`: título comercial del producto (`product_title` de ESCI).
+  * `image_url`: URL directa a la fotografía del producto (de SQID).
+* **Juicios de relevancia (`qrels.json`):** para cada consulta se listan los productos evaluados por anotadores humanos con su etiqueta ESCI, mapeada a un puntaje graduado para NDCG:
+  * **Exact** (concordancia exacta): 3 puntos.
+  * **Substitute** (sustituto directo): 2 puntos.
+  * **Complement** (complementario): 1 punto.
+  * **Irrelevant** (irrelevante): 0 puntos.
+* Se descartan del corpus las consultas que, tras el filtro de imágenes, quedan sin ningún producto relevante (`score > 0`), ya que no aportarían señal útil a Precision/Recall/NDCG.
+* **Modo de respaldo:** si no hay conexión a internet o la descarga falla, `backend/corpus.py` recae automáticamente en un corpus mock de 10 productos (`generate_mock_corpus()`), pensado únicamente para poder desarrollar/depurar sin conexión — el corpus de la entrega final es el real descrito arriba.
+
+> Nota para quien ejecute el proyecto: al no existir aún `backend/data/corpus.json` y `backend/data/qrels.json` en este entorno, la primera vez que se arranque el backend (o se ejecute `python -m backend.corpus`) se descargará y construirá el corpus real descrito en esta sección. El tamaño exacto final (número de productos y consultas) depende de cuántas filas del stream de ESCI tengan una imagen real asociada en SQID, y quedará impreso en la consola en ese momento.
 
 ---
 
@@ -40,7 +49,7 @@ graph TD
         CLIP[CLIP Embeddings: clip-ViT-B-32]
         FAISS[Vector Store: FAISS Index]
         RERANK[Re-ranking: Cross-Encoder]
-        LLM[RAG Generator: Gemini 2.5]
+        LLM[RAG Generator: Gemini Flash]
         FeedbackDB[Base de Datos de Feedback]
         Eval[Módulo de Evaluación]
     end
@@ -50,53 +59,79 @@ graph TD
     API --> QE
     QE --> CLIP
     CLIP -->|Embedding| FAISS
-    FAISS -->|Top-10 Candidatos| RERANK
+    FAISS -->|Top-8 Candidatos| RERANK
     RERANK -->|Top-4 Reordenados| LLM
     FeedbackDB -->|Ajuste de Scores| RERANK
     LLM -->|2. Respuesta + Evidencias + Similitudes| UI
 ```
 
-* **Frontend (Next.js):** Construido sobre React, TypeScript y Tailwind CSS. Implementa un diseño premium monocromático y una tipografía obligatoria basada en la fuente **Josefin Sans**. Integra un panel colapsable nativo bajo cada respuesta para la inspección visual de las evidencias (títulos, miniaturas de imágenes y porcentajes de similitud).
-* **Backend (FastAPI):** Proceso en Python que orquesta el pipeline de recuperación vectorial semántica y generación. Utiliza **FAISS** como motor de indexación de vectores y la **API de Google Gemini** como modelo generativo.
+* **Frontend (Next.js):** construido sobre React, TypeScript y Tailwind CSS. Implementa un diseño monocromático y tipografía **Josefin Sans**. Integra un panel colapsable (`<details>`) bajo cada respuesta para inspeccionar las evidencias (título, miniatura de imagen, ID de producto y similitud coseno), con botones individuales de "me gusta"/"no me gusta" por evidencia.
+* **Backend (FastAPI):** orquesta el pipeline de recuperación vectorial y generación. Utiliza **FAISS** como motor de indexación de vectores en memoria (`IndexFlatIP`) y la **API de Google Gemini** como modelo generativo, con una lista de modelos de respaldo ante error de cuota (ver Sección 3).
 
 ---
 
 ## 3. Pipeline de Recuperación y Generación (RAG)
 
-El flujo de procesamiento de una consulta se ejecuta a través de los siguientes pasos secuenciales:
+El flujo de procesamiento de una consulta (`backend/rag.py:generate_rag_response`) se ejecuta en los siguientes pasos:
 
-1. **Expansión de Consulta (Query Expansion):** La consulta cruda del usuario se procesa con Gemini para expandir términos afines (sinónimos de comercio y variaciones de marca).
-2. **Generación de Embeddings Multimodales (CLIP):** La consulta expandida se codifica en un vector numérico de 512 dimensiones utilizando el modelo de dos torres **`clip-ViT-B-32`**. Esto permite alinear semánticamente el texto del usuario con el texto y las representaciones visuales del corpus.
-3. **Búsqueda Vectorial Semántica (FAISS):** Se calcula la similitud de coseno (producto interno de vectores con normalización L2) entre la consulta y todos los productos del corpus. Se recupera una lista inicial de los **10 productos candidatos** más cercanos.
-4. **Re-ranking (Cross-Encoder):** Los candidatos de FAISS se evalúan por pares `(consulta, título_producto)` mediante el modelo **`cross-encoder/ms-marco-MiniLM-L-6-v2`** para obtener una relevancia textual profunda y libre de las limitaciones espaciales de los embeddings de una sola torre. Se seleccionan los **4 mejores productos**.
-5. **Generación Aumentada (RAG):** Se construye un prompt de sistema inyectando el historial de la conversación (memoria) y el contexto enriquecido de los 4 productos (título, score de recuperación e ID). El modelo **`gemini-2.5-flash`** genera una respuesta coherente y citada basándose exclusivamente en esa información.
+1. **Expansión de consulta (Query Expansion — excelencia):** la consulta cruda del usuario se reescribe con Gemini para incluir sinónimos y términos relacionados de e-commerce, mejorando la recuperación ante vocabulario desalineado entre el usuario y el catálogo.
+2. **Embeddings multimodales (CLIP):** la consulta expandida se codifica con el modelo de dos torres **`clip-ViT-B-32`** (`sentence-transformers`), normalizando el vector resultante (`normalize_embeddings=True`).
+3. **Búsqueda vectorial (FAISS):** se calcula la similitud coseno (producto interno sobre vectores L2-normalizados, `IndexFlatIP`) entre la consulta y todos los títulos de producto del corpus, recuperando los **8 candidatos** más cercanos.
+4. **Ajuste por Relevance Feedback (excelencia):** si existe retroalimentación previa del usuario ("me gusta"/"no me gusta") para ese par consulta-producto, se ajusta linealmente (±0.1) el score de similitud antes del re-ranking.
+5. **Re-ranking (Cross-Encoder — excelencia):** los candidatos se evalúan por pares `(consulta, título_producto)` con **`cross-encoder/ms-marco-MiniLM-L-6-v2`**, que captura relevancia textual profunda no disponible en el encoder de una sola torre de CLIP. Se seleccionan los **4 mejores** productos reordenados.
+6. **Generación aumentada (RAG):** se construye un prompt que inyecta el historial de conversación (memoria — excelencia) y el contexto de los 4 productos (título, ID, score de recuperación). El LLM genera la respuesta final basándose exclusivamente en ese contexto.
+
+**Modelo de lenguaje y resiliencia:** `call_gemini_with_fallback` intenta, en orden, la lista `GEMINI_MODELS` definida en `backend/rag.py` (actualmente `gemini-3.1-flash-lite → gemini-2.0-flash-lite → gemini-2.0-flash → gemini-1.5-flash → gemini-1.5-flash-8b`), con reintentos y backoff ante error 429 (cuota excedida) y salto automático al siguiente modelo ante error 404. Si todos los modelos fallan, el sistema responde con un mensaje de degradación controlada mostrando igualmente los productos recuperados, sin romper la experiencia del usuario.
 
 ---
 
 ## 4. Resultados Experimentales y Análisis de Métricas
 
-La evaluación experimental del sistema de recuperación se realizó de forma sistemática contrastando los resultados de búsqueda de FAISS contra las listas de juicios de relevancia de `qrels.json`. Se reportan las métricas académicas de **Precision@k**, **Recall@k** y **NDCG@k** para los umbrales típicos de recuperación ($k = 1, 3, 5$):
+La evaluación (`backend/evaluation.py`) contrasta la recuperación de FAISS contra los juicios de relevancia de `qrels.json`, reportando **Precision@k**, **Recall@k** y **NDCG@k** (graduado, con ganancia $2^{rel}-1$) para $k \in \{1, 3, 5\}$. Se calculan **dos variantes** para poder cuantificar el aporte de la funcionalidad de excelencia de Re-ranking:
 
-### Tabla de Métricas de Recuperación Promedio
+* **Baseline:** ranking crudo de CLIP + FAISS (`run_evaluation(apply_reranking=False)`).
+* **Con Re-ranking:** se recupera un pool más amplio con FAISS y se reordena con el Cross-Encoder antes de recortar a cada $k$ (`run_evaluation(apply_reranking=True)`), reutilizando el mismo modelo que usa el pipeline de producción.
+
+> **Pendiente de completar antes de la entrega final:** las tablas de abajo deben llenarse ejecutando la evaluación contra el corpus real (ver Sección 1) desde una máquina con memoria suficiente para cargar CLIP y el Cross-Encoder. Pasos:
+> 1. Iniciar el backend una vez (`python -m uvicorn backend.main:app --port 8000`) o correr `python -m backend.corpus` para descargar/construir el corpus real y `python -m backend.vector_db` para indexarlo.
+> 2. Ejecutar `python -m backend.evaluation` (imprime baseline y con re-ranking) o llamar a `GET /api/evaluate`, que ahora devuelve `metrics.baseline_faiss` y `metrics.with_reranking`.
+> 3. Copiar los valores impresos en las tablas siguientes.
+
+### Tabla A — Baseline (solo CLIP + FAISS)
 
 | Umbral ($k$) | Precision@k | Recall@k | NDCG@k |
 | :---: | :---: | :---: | :---: |
-| **$k = 1$** | $1.0000$ | $0.4444$ | $1.0000$ |
-| **$k = 3$** | $1.0000$ | $1.0000$ | $1.0000$ |
-| **$k = 5$** | $0.6000$ | $1.0000$ | $0.8938$ |
+| **$k = 1$** | _pendiente_ | _pendiente_ | _pendiente_ |
+| **$k = 3$** | _pendiente_ | _pendiente_ | _pendiente_ |
+| **$k = 5$** | _pendiente_ | _pendiente_ | _pendiente_ |
 
-### Análisis de Desempeño:
-* **Precision@k:** Para $k=1$ y $k=3$, el sistema mantiene una precisión perfecta ($1.0000$), indicando que todos los productos devueltos en las primeras posiciones son altamente relevantes para la necesidad de información del usuario. Al ampliar a $k=5$, la precisión desciende a $0.6000$, lo cual es esperado dado que se recuperan documentos menos específicos (sustitutos o complementos con etiquetas de menor puntaje).
-* **Recall@k:** El recobrado alcanza su valor máximo ($1.0000$) a partir de $k=3$. Esto demuestra la efectividad de los embeddings de CLIP y la expansión de consultas para capturar la totalidad de los elementos relevantes de la base de datos pequeña en las primeras posiciones de respuesta.
-* **NDCG@k:** El puntaje de ganancia acumulada descontada normalizada es perfecto ($1.0000$) en las posiciones más altas ($k=1, 3$), demostrando que el orden del ranking devuelto está perfectamente alinedado con las preferencias de relevancia del qrels (colocando los productos `Exact` primero y los `Substitute` después). En $k=5$, el NDCG es de $0.8938$, lo que ratifica la altísima fidelidad del ranking de recuperación.
+### Tabla B — Con Re-ranking (Cross-Encoder)
+
+| Umbral ($k$) | Precision@k | Recall@k | NDCG@k |
+| :---: | :---: | :---: | :---: |
+| **$k = 1$** | _pendiente_ | _pendiente_ | _pendiente_ |
+| **$k = 3$** | _pendiente_ | _pendiente_ | _pendiente_ |
+| **$k = 5$** | _pendiente_ | _pendiente_ | _pendiente_ |
+
+### Guía de análisis (a completar con los valores reales)
+
+* **Precision@k:** se espera que decrezca o se mantenga estable al aumentar $k$, ya que posiciones más profundas del ranking suelen incluir sustitutos o complementos en vez de coincidencias exactas.
+* **Recall@k:** debe crecer monótonamente con $k$ (nunca disminuye), acercándose a 1.0 cuando $k$ cubre la mayoría de los productos relevantes marcados en `qrels.json` para cada consulta.
+* **NDCG@k:** al ser una métrica graduada, penaliza colocar un `Substitute` o `Complement` por encima de un `Exact`; valores altos indican que el orden del ranking respeta la jerarquía de relevancia humana.
+* **Comparación Tabla A vs. Tabla B:** si el re-ranking con Cross-Encoder está aportando valor, la Tabla B debería mostrar igual o mejor Precision@k y NDCG@k que la Tabla A para los mismos $k$, ya que el Cross-Encoder captura relevancia semántica más fina que la similitud de una sola torre de CLIP. Si no se observa mejora, es una discusión legítima a incluir en el informe final (p. ej. corpus pequeño, títulos ya muy discriminativos léxicamente, etc.).
 
 ---
 
 ## 5. Descripción de las Funcionalidades de Excelencia Implementadas
 
-Para maximizar el desempeño y asegurar la nota máxima del proyecto final, se incorporaron 4 funcionalidades avanzadas:
+Se incorporaron 4 funcionalidades avanzadas sobre el sistema base:
 
-1. **Re-ranking (+15 puntos):** Uso de `ms-marco-MiniLM-L-6-v2` para corregir sesgos del codificador CLIP. El reordenamiento permite que productos semánticamente idénticos suban en la lista de prioridades a pesar de variaciones léxicas en la consulta.
-2. **Query Expansion (+15 puntos):** Gemini reescribe de forma transparente la consulta agregando sinónimos comerciales y descriptivos (ej. "running shoes" se expande a "sneakers, athletic footwear, sport shoes"). Esto ayuda a mitigar el problema del vocabulario desalineado en e-commerce.
-3. **Relevance Feedback (+15 puntos):** Los botones de me gusta/no me gusta de la UI las notificaciones al backend de forma asíncrona. El sistema guarda este feedback en un archivo estructurado local y lo utiliza para incrementar o reducir linealmente el score de similitud de esos productos en futuras consultas similares.
-4. **Memoria Conversacional (+15 puntos):** El frontend inyecta el historial secuencial estructurado de la sesión en el payload de `/api/chat`. El backend procesa este historial en el prompt de RAG para mantener el hilo del diálogo y resolver pronombres o referencias contextuales.
+1. **Re-ranking (+15 puntos):** `cross-encoder/ms-marco-MiniLM-L-6-v2` reordena los candidatos de FAISS evaluando pares `(consulta, título)` directamente, corrigiendo casos donde la similitud de embeddings de una sola torre no captura bien la relevancia textual fina. Implementado en `backend/rag.py` (pipeline de producción) y reutilizado en `backend/evaluation.py` para poder medir su impacto cuantitativamente (Sección 4).
+2. **Query Expansion (+15 puntos):** Gemini reescribe la consulta del usuario agregando sinónimos y términos de e-commerce relacionados antes de generar el embedding, mitigando el desajuste de vocabulario entre la consulta y los títulos del catálogo (`expand_query_with_llm` en `backend/rag.py`).
+3. **Relevance Feedback (+15 puntos):** los botones de "me gusta"/"no me gusta" de cada evidencia en la UI notifican a `POST /api/feedback`, que persiste el feedback en `backend/data/feedback.json` (clave `consulta||product_id`). `apply_relevance_feedback` ajusta ±0.1 el score de similitud de ese par en búsquedas futuras con la misma consulta.
+4. **Memoria Conversacional (+15 puntos):** el frontend envía el historial de la sesión en cada petición a `/api/chat`; el backend inyecta los últimos 6 mensajes en el prompt de generación para mantener el hilo del diálogo y resolver referencias contextuales.
+
+### Limitaciones conocidas (para discutir con transparencia en la defensa)
+
+* **CLIP se usa solo en su torre de texto:** `backend/embeddings.py` únicamente expone `encode_text`; las imágenes de producto se muestran en la interfaz como evidencia visual, pero no se generan embeddings de imagen ni se indexan vectores visuales. La recuperación es multimodal en el sentido de que el corpus combina texto e imagen asociada, pero la búsqueda por similitud ocurre en el espacio de texto de CLIP, no en el espacio visual.
+* **La evaluación mide la etapa de recuperación**, no la respuesta final generada por el LLM (que depende de la disponibilidad y cuota de la API de Gemini en el momento de la demo).

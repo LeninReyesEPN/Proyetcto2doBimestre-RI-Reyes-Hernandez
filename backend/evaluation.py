@@ -2,6 +2,7 @@ import os
 import json
 import numpy as np
 from backend.vector_db import search
+from backend.rag import get_cross_encoder
 
 # Paths
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -65,33 +66,57 @@ def calculate_metrics_for_query(retrieved_ids: list[str], relevance_list: list[d
         "ndcg": ndcg
     }
 
-def run_evaluation(k_values=[1, 3, 5]) -> dict:
-    """Evaluates all queries in the qrels dataset and returns averaged metrics."""
+def rerank_results(query_text: str, candidates: list[dict]) -> list[dict]:
+    """Re-rank de excelencia: reordena los candidatos de FAISS con el Cross-Encoder,
+    reutilizando el mismo modelo que usa el pipeline RAG en producción (rag.py)."""
+    cross_encoder = get_cross_encoder()
+    if not cross_encoder or not candidates:
+        return candidates
+    pairs = [(query_text, item["title"]) for item in candidates]
+    scores = cross_encoder.predict(pairs)
+    for item, score in zip(candidates, scores):
+        item["re_rank_score"] = float(score)
+    return sorted(candidates, key=lambda item: item["re_rank_score"], reverse=True)
+
+
+def run_evaluation(k_values=[1, 3, 5], apply_reranking: bool = False) -> dict:
+    """Evaluates all queries in the qrels dataset and returns averaged metrics.
+
+    Si apply_reranking=True, se recupera un pool más amplio de candidatos con
+    FAISS y se reordena con el Cross-Encoder antes de recortar a cada k, lo que
+    permite comparar el ranking base (solo CLIP+FAISS) contra el ranking con la
+    funcionalidad de excelencia de Re-ranking activada.
+    """
     qrels = load_qrels()
     if not qrels:
         print("La base de qrels está vacía.")
         return {}
 
     overall_metrics = {k: {"precision": [], "recall": [], "ndcg": []} for k in k_values}
-    
-    print(f"Evaluando {len(qrels)} consultas del benchmark experimental...")
+    max_k = max(k_values)
+
+    print(f"Evaluando {len(qrels)} consultas del benchmark experimental "
+          f"({'con' if apply_reranking else 'sin'} re-ranking)...")
     for q_entry in qrels:
         q_text = q_entry["query"]
         relevance_list = q_entry["relevance"]
-        
-        # Search the vector database for this query text
-        # Retrieve maximum required K
-        max_k = max(k_values)
-        retrieved_results = search(q_text, top_k=max_k)
+
+        # Retrieve maximum required K (un pool más amplio si luego se va a re-rankear)
+        pool_size = max_k * 2 if apply_reranking else max_k
+        retrieved_results = search(q_text, top_k=pool_size)
+
+        if apply_reranking:
+            retrieved_results = rerank_results(q_text, retrieved_results)[:max_k]
+
         retrieved_ids = [res["product_id"] for res in retrieved_results]
-        
+
         # Calculate metrics for each k value
         for k in k_values:
             metrics = calculate_metrics_for_query(retrieved_ids, relevance_list, k)
             overall_metrics[k]["precision"].append(metrics["precision"])
             overall_metrics[k]["recall"].append(metrics["recall"])
             overall_metrics[k]["ndcg"].append(metrics["ndcg"])
-            
+
     # Calculate average values
     report = {}
     for k in k_values:
@@ -100,10 +125,14 @@ def run_evaluation(k_values=[1, 3, 5]) -> dict:
             "Recall@k": round(float(np.mean(overall_metrics[k]["recall"])), 4),
             "NDCG@k": round(float(np.mean(overall_metrics[k]["ndcg"])), 4)
         }
-        
+
     print("Resultados de la Evaluación Experimental:")
     print(json.dumps(report, indent=2))
     return report
 
+
 if __name__ == "__main__":
-    run_evaluation()
+    print("\n=== Baseline: solo CLIP + FAISS ===")
+    run_evaluation(apply_reranking=False)
+    print("\n=== Con Re-ranking (Cross-Encoder) ===")
+    run_evaluation(apply_reranking=True)
